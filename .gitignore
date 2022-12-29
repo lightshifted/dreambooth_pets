@@ -4,4 +4,4 @@ safety_checker/
 *.egg-info
 __pycache__/
 .DS_Store
-README.md
+.env.local
