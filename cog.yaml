@@ -1,0 +1,41 @@
+# Configuration for Cog ⚙️
+# Reference: https://github.com/replicate/cog/blob/main/docs/yaml.md
+
+build:
+  # set to true if your model requires a GPU
+  gpu: true
+  
+  # set cuda version
+  cuda: "11.7"
+
+  # a list of ubuntu apt packages to install
+  # system_packages:
+    # - "libgl1-mesa-glx"
+    # - "libglib2.0-0"
+
+  # python version in the form '3.8' or '3.8.12'
+  python_version: "3.8"
+
+  # a list of packages in the format <package-name>==<version>
+  python_packages:
+    - accelerate==0.15.0
+    - deepspeed==0.7.7
+    - diffusers==0.11.1
+    - huggingface-hub==0.11.1
+    - jiwer==2.5.1
+    - ninja==1.11.1
+    - nvidia-cublas-cu11==11.10.3.66
+    - nvidia-cuda-nvrtc-cu11==11.7.99
+    - nvidia-cuda-runtime-cu11==11.7.99
+    - nvidia-cudnn-cu11==8.5.0.96
+    - tensorboard==2.11.0
+    - torchvision==0.14.1
+    - tqdm==4.64.1
+    - transformers==4.25.1
+  
+  # commands run after the environment is setup
+  run:
+    - "echo env is ready!"
+
+# predict.py defines how predictions are run on your model
+predict: "predict.py:Predictor"
