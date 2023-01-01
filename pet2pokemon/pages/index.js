@@ -5,6 +5,7 @@ import styles from "../styles/Home.module.css";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+
 export default function Home() {
   const [prediction, setPrediction] = useState(null);
   const [error, setError] = useState(null);
@@ -58,6 +59,10 @@ export default function Home() {
       <form className={styles.form} onSubmit={handleSubmit}>
         <input type="text" name="prompt" placeholder="Enter a prompt to display an image" />
         <button type="submit">Go!</button>
+      </form>
+
+      <form className={styles.form} onSubmit={handleSubmit}>
+        <input type="file" name="image" placeholder="Upload some images!" />
       </form>
 
       {error && <div>{error}</div>}
