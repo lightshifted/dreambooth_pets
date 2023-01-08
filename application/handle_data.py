@@ -1,13 +1,35 @@
-from torch.utils.data import Dataset
-import transformers
-from torchvision import transforms
-from PIL import Image
+from typing import List, Dict
+import torch
 import glob
 import os
+from PIL import Image
+import transformers
+import torchvision.transforms as transforms
+from torch.utils.data import Dataset
 
 
 class DreamBoothData(Dataset):
-    def __init__(self, folder_path: str, tokenizer, instance_prompt: str, size=512):
+    """
+    A PyTorch Dataset class for loading and processing 
+    images and text data for the DreamBooth project.
+    
+    Parameters
+    ----------
+    folder_path: str
+        The path to the directory containing the images.
+    tokenizer: transformers.PreTrainedTokenizer
+        The tokenizer to use for encoding the text data.
+    instance_prompt: str
+        The prompt to use for each instance.
+    size: int, optional (default=512)
+        The size of the images in the dataset.
+    """
+    def __init__(self,
+    folder_path: str, 
+    tokenizer: transformers.PreTrainedTokenizer, 
+    instance_prompt: str, 
+    size: int=512
+    ):
         self.instance_prompt = instance_prompt
         self.tokenizer = tokenizer
         self.size = size
@@ -32,11 +54,32 @@ class DreamBoothData(Dataset):
         ) + glob.glob(os.path.join(folder_path, '*.png'))
 
         
-    def __len__(self):
+    def __len__(self) -> int:
+        """
+        Returns the length of the dataset, which is the number of images in the dataset.
+        
+        Returns
+        -------
+        int
+            The length of the dataset.
+        """
         return len(self.file_paths)
 
     
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> Dict[str, torch.Tensor]:
+        """
+        Returns the example at the given index.
+        
+        Parameters
+        ----------
+        index: int
+            The index of the example to return.
+            
+        Returns
+        -------
+        Dict[str, torch.Tensor]
+            A dictionary containing the image data and the encoded text data.
+        """
         images = []
         # Iterate over the list of file_paths and load the images
         for file_path in self.file_paths:
