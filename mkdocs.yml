@@ -1,0 +1,16 @@
+site_name: Pet 2 Pokemon
+repo_url: https://github.com/masslightsquared/dreambooth_pets/
+nav:
+- Home: index.md
+- workflows:
+  - main: application/main.md
+- application:
+  - data: application/data.md
+  - training: application/training.md
+- config:
+  - config: config/config.md
+theme: readthedocs
+plugins:
+  - mkdocstrings
+watch:
+  - . # reload docs for any file changes
