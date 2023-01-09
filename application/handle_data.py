@@ -1,18 +1,19 @@
-from typing import List, Dict
-import torch
 import glob
 import os
-from PIL import Image
-import transformers
+from typing import Dict, List
+
+import torch
 import torchvision.transforms as transforms
+import transformers
+from PIL import Image
 from torch.utils.data import Dataset
 
 
 class DreamBoothData(Dataset):
     """
-    A PyTorch Dataset class for loading and processing 
+    A PyTorch Dataset class for loading and processing
     images and text data for the DreamBooth project.
-    
+
     Parameters
     ----------
     folder_path: str
@@ -24,20 +25,21 @@ class DreamBoothData(Dataset):
     size: int, optional (default=512)
         The size of the images in the dataset.
     """
-    def __init__(self,
-    folder_path: str, 
-    tokenizer: transformers.PreTrainedTokenizer, 
-    instance_prompt: str, 
-    size: int=512
+
+    def __init__(
+        self,
+        folder_path: str,
+        tokenizer: transformers.PreTrainedTokenizer,
+        instance_prompt: str,
+        size: int = 512,
     ):
         self.instance_prompt = instance_prompt
         self.tokenizer = tokenizer
         self.size = size
         self.tokenizer = transformers.CLIPTokenizer.from_pretrained(
-            "lambdalabs/sd-pokemon-diffusers",
-            subfolder="tokenizer"
+            "lambdalabs/sd-pokemon-diffusers", subfolder="tokenizer"
         )
-        
+
         self.transformer = transforms.Compose(
             [
                 transforms.Resize(size),
@@ -46,18 +48,15 @@ class DreamBoothData(Dataset):
                 transforms.Normalize([0.5], [0.5]),
             ]
         )
-        
-        self.file_paths = glob.glob(
-            os.path.join(
-                folder_path, '*.jpg'
-            )
-        ) + glob.glob(os.path.join(folder_path, '*.png'))
 
-        
+        self.file_paths = glob.glob(os.path.join(folder_path, "*.jpg")) + glob.glob(
+            os.path.join(folder_path, "*.png")
+        )
+
     def __len__(self) -> int:
         """
         Returns the length of the dataset, which is the number of images in the dataset.
-        
+
         Returns
         -------
         int
@@ -65,16 +64,15 @@ class DreamBoothData(Dataset):
         """
         return len(self.file_paths)
 
-    
     def __getitem__(self, index: int) -> Dict[str, torch.Tensor]:
         """
         Returns the example at the given index.
-        
+
         Parameters
         ----------
         index: int
             The index of the example to return.
-            
+
         Returns
         -------
         Dict[str, torch.Tensor]
@@ -84,8 +82,8 @@ class DreamBoothData(Dataset):
         # Iterate over the list of file_paths and load the images
         for file_path in self.file_paths:
             with Image.open(file_path) as image:
-                if image.mode != 'RGB':
-                    image = image.convert('RGB')
+                if image.mode != "RGB":
+                    image = image.convert("RGB")
 
                 # Convert the image to a tensor using the transformer object
                 image = self.transformer(image)

@@ -138,14 +138,14 @@ def parse_args(input_args=None):
         type=int,
         default=5,
         required=False,
-        help="Number of images to generate per inference call."
+        help="Number of images to generate per inference call.",
     )
     parser.add_argument(
         "--log_with",
         type=str,
         default="tensorboard",
         required=False,
-        choices=['all', 'aim', 'tensorboard', 'wandb', 'comet_ml', 'mlflow'],
+        choices=["all", "aim", "tensorboard", "wandb", "comet_ml", "mlflow"],
         help="Supported logging capabilities.",
     )
     parser.add_argument(
@@ -167,10 +167,10 @@ def parse_args(input_args=None):
         required=False,
         help=("Number of gpus to use for training."),
     )
-    
+
     if input_args is not None:
         args = parser.parse_args(input_args)
     else:
         args = parser.parse_args()
-    
+
     return args

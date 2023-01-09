@@ -28,6 +28,8 @@ sudo cog init
 ```
 Step 6: Run each cell in the `get_weights.ipynb` notebook to collect pretrained weights from HuggingFace repositories and to store them in a local directory.
 
+# This project offers great flexiblity when it comes to running the model. Here are the options on offer:
+
 ## CLI
 Using the CLI, we can define the model, training and data arguments for fine-tuning.
 ```bash
@@ -43,3 +45,6 @@ Using the CLI, we can define the model, training and data arguments for fine-tun
 --output_directory="output_model",
 --image_concept="shih tzu",
 ```
+## COG
+
+## Jupyter Notebook
