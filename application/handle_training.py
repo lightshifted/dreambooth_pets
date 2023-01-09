@@ -1,20 +1,16 @@
-from argparse import Namespace
-from diffusers import StableDiffusionPipeline, DDIMScheduler, PNDMScheduler
-from accelerate import Accelerator
-from accelerate.utils import set_seed
-from accelerate.logging import get_logger
-from accelerate import notebook_launcher
 import math
-from tqdm.auto import tqdm
+from argparse import Namespace
 from pathlib import Path
-from diffusers.pipelines.stable_diffusion import StableDiffusionSafetyChecker
-import time
 
 import torch
 import torch.nn.functional as F
-from torch.utils.data import Dataset
-from torchvision import transforms
+from accelerate import Accelerator, notebook_launcher
+from accelerate.logging import get_logger
+from accelerate.utils import set_seed
+from diffusers import DDIMScheduler, PNDMScheduler, StableDiffusionPipeline
+from diffusers.pipelines.stable_diffusion import StableDiffusionSafetyChecker
 from torch.utils.data import DataLoader
+from tqdm.auto import tqdm
 
 from application.handle_data import DreamBoothData
 from config.handle_configurations import parse_args
@@ -23,25 +19,27 @@ logger = get_logger(__name__)
 
 
 class Trainer:
-    def __init__(self, args: Namespace, custom_prompt: bool=False):
-                
+    def __init__(self, args: Namespace):
+
         self.args = args
         self.log_dir = Path(self.args.output_directory, self.args.logging_dir)
-        
-        self.pipeline = StableDiffusionPipeline.from_pretrained(self.args.model_id, torch_dtype=torch.float32)
+
+        self.pipeline = StableDiffusionPipeline.from_pretrained(
+            self.args.model_id, torch_dtype=torch.float32
+        )
         self.pipeline.to(self.args.device)
         self.accelerator = Accelerator(
             gradient_accumulation_steps=self.args.gradient_accumulation_steps,
             log_with=self.args.log_with,
-            logging_dir='logs',
+            logging_dir="logs",
         )
-        
+
         self.unet = self.pipeline.unet
         self.text_encoder = self.pipeline.text_encoder
         self.vae = self.pipeline.vae
         self.tokenizer = self.pipeline.tokenizer
         self.feature_extractor = self.pipeline.feature_extractor
-        
+
         self.optimizer_class = torch.optim.AdamW
         self.optimizer = self.optimizer_class(
             self.unet.parameters(),  # only optimize unet
@@ -53,36 +51,36 @@ class Trainer:
             beta_schedule="linear",
             num_train_timesteps=1000,
         )
-        
+
         self.instance_prompt = f"{self.args.image_concept} {self.args.image_object}"
-            
+
         self.train_dataset = DreamBoothData(
             self.args.train_data_directory,
             self.tokenizer,
             self.instance_prompt,
             size=self.args.resolution,
-        )        
-            
+        )
+
         self.train_dataloader = DataLoader(
             self.train_dataset,
             batch_size=self.args.train_batch_size,
             shuffle=True,
             collate_fn=self.collate_fn,
         )
-                    
+
         self.unet, self.optimizer, self.train_dataloader = self.accelerator.prepare(
             self.unet, self.optimizer, self.train_dataloader
         )
-        
+
         # Move text_encode and vae to gpu
         self.text_encoder.to(self.accelerator.device)
         self.vae.type(torch.FloatTensor)
         self.vae.to(self.accelerator.device)
-                
+
         # Set the seed for the random number generator, if specified
         if self.args.seed is not None:
             set_seed(self.args.seed)
-            
+
         def training_function():
             # We need to recalculate our total training steps as the size of the training dataloader may have changed.
             num_update_steps_per_epoch = math.ceil(
@@ -96,14 +94,16 @@ class Trainer:
                 * self.accelerator.num_processes
                 * self.args.gradient_accumulation_steps
             )
-            
+
             logger.info("***** Running training *****")
             logger.info(f"  Num examples = {len(self.train_dataset)}")
             logger.info(f"  Num batches each epoch = {len(self.train_dataloader)}")
             logger.info(f"  Num Epochs = {num_train_epochs}")
             logger.info(f"  Num update steps per epoch = {num_update_steps_per_epoch}")
             logger.info(f"  Instantaneous batch size per device = {args.train_batch_size}")
-            logger.info(f"  Total train batch size (w. parallel, distributed & accumulation). = {total_batch_size}")
+            logger.info(
+                f"  Total train batch size (w. parallel, distributed & accumulation). = {total_batch_size}"
+            )
             logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
             logger.info(f"  Total optimization steps = {args.max_train_steps}")
             logger.info(f"  Num of inference steps = {args.num_inference_steps}")
@@ -150,13 +150,13 @@ class Trainer:
                             noisy_latents, timesteps, encoder_hidden_states
                         ).sample
                         loss = (
-                            F.mse_loss(noise_pred, noise, reduction="none")
-                            .mean([1, 2, 3])
-                            .mean()
+                            F.mse_loss(noise_pred, noise, reduction="none").mean([1, 2, 3]).mean()
                         )
                         self.accelerator.backward(loss)
                         if self.accelerator.sync_gradients:
-                            self.accelerator.clip_grad_norm_(self.unet.parameters(), self.args.max_grad_norm)
+                            self.accelerator.clip_grad_norm_(
+                                self.unet.parameters(), self.args.max_grad_norm
+                            )
                         self.optimizer.step()
                         self.optimizer.zero_grad()
 
@@ -189,15 +189,14 @@ class Trainer:
                     unet=self.accelerator.unwrap_model(self.unet),
                     tokenizer=self.tokenizer,
                     scheduler=scheduler,
-                    safety_checker=StableDiffusionSafetyChecker.from_pretrained(
-                        "safety_checker"
-                    ),
+                    safety_checker=StableDiffusionSafetyChecker.from_pretrained("safety_checker"),
                     feature_extractor=self.feature_extractor,
                 )
                 pipeline.save_pretrained(self.args.output_directory)
-        
+
         notebook_launcher(
-            training_function, num_processes=self.args.num_of_gpus # CHANGE THIS TO MATCH THE NUMBER OF GPUS YOU HAVE
+            training_function,
+            num_processes=self.args.num_of_gpus,  # CHANGE THIS TO MATCH THE NUMBER OF GPUS YOU HAVE
         )
 
         pipe = StableDiffusionPipeline.from_pretrained(
@@ -213,21 +212,30 @@ class Trainer:
 
         all_images = []
         for _ in range(self.args.num_images_to_generate):
-            images = pipe(prompt, guidance_scale=self.args.guidance_scale, num_inference_steps=self.args.num_inference_steps).images
+            images = pipe(
+                prompt,
+                guidance_scale=self.args.guidance_scale,
+                num_inference_steps=self.args.num_inference_steps,
+            ).images
             all_images.extend(images)
 
-        title = str(self.args.learning_rate) + "_" + str(self.args.max_train_steps) + "_" + str(self.args.guidance_scale)
+        title = (
+            str(self.args.learning_rate)
+            + "_"
+            + str(self.args.max_train_steps)
+            + "_"
+            + str(self.args.guidance_scale)
+        )
         for idx, im in enumerate(all_images):
             # if not os.path.exists(f"{self.args.output_directory}/{idx:03}_{title}_{args.image_object}"):
             #     os.makedirs(f"{self.args.output_directory}/{idx:03}_{title}_{args.image_object}")
             im.save(f"{self.args.experiment_results}/{idx:03}_{title}_{self.args.image_object}.png")
-        
+
         # free up memory
         del pipe
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-                
-                
+
     def collate_fn(self, examples):
         # Extract the "instance_prompt_ids" and "instance_images" fields from each example
         input_ids = [example["instance_prompt_ids"] for example in examples]
@@ -248,8 +256,8 @@ class Trainer:
             "pixel_values": pixel_values,
         }
         return batch
-    
-    
+
+
 if __name__ == "__main__":
     args = parse_args()
     Trainer(args)

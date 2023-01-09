@@ -1,33 +1,22 @@
-from cog import BasePredictor, Input, Path, File
-from diffusers import StableDiffusionPipeline
-
-from argparse import Namespace
-from diffusers import StableDiffusionPipeline, DDIMScheduler, PNDMScheduler
-from accelerate import Accelerator
-from accelerate.utils import set_seed
-from accelerate.logging import get_logger
-from accelerate import notebook_launcher
 import math
-from tqdm.auto import tqdm
+import os
+from argparse import Namespace
 from pathlib import Path as PATH
-from diffusers.pipelines.stable_diffusion import StableDiffusionSafetyChecker
-import time
+from typing import List
 
 import torch
 import torch.nn.functional as F
-from torch.utils.data import Dataset
-from torchvision import transforms
+from accelerate import Accelerator, notebook_launcher
+from accelerate.utils import set_seed
+from cog import BasePredictor, Input, Path
+from diffusers import DDIMScheduler, PNDMScheduler, StableDiffusionPipeline
 from torch.utils.data import DataLoader
+from tqdm.auto import tqdm
 
 from application.handle_data import DreamBoothData
-from config.handle_configurations import parse_args
 
-import os
-
-from typing import List
 
 class Predictor(BasePredictor):
-
     def collate_fn(self, examples):
         # Extract the "instance_prompt_ids" and "instance_images" fields from each example
         input_ids = [example["instance_prompt_ids"] for example in examples]
@@ -50,7 +39,7 @@ class Predictor(BasePredictor):
         return batch
 
     def setup(self):
-    
+
         self.args = Namespace(
             model_id="pretrained_model",
             device="cuda",
@@ -75,23 +64,25 @@ class Predictor(BasePredictor):
             num_of_gpus=1,
             num_images_to_generate=5,
         )
-        
+
         self.log_dir = PATH(self.args.output_directory, self.args.logging_dir)
-        
-        self.pipeline = StableDiffusionPipeline.from_pretrained(self.args.model_id, torch_dtype=torch.float32)
+
+        self.pipeline = StableDiffusionPipeline.from_pretrained(
+            self.args.model_id, torch_dtype=torch.float32
+        )
         self.pipeline.to(self.args.device)
         self.accelerator = Accelerator(
             gradient_accumulation_steps=self.args.gradient_accumulation_steps,
             log_with=self.args.log_with,
-            logging_dir='logs',
+            logging_dir="logs",
         )
-        
+
         self.unet = self.pipeline.unet
         self.text_encoder = self.pipeline.text_encoder
         self.vae = self.pipeline.vae
         self.tokenizer = self.pipeline.tokenizer
         self.feature_extractor = self.pipeline.feature_extractor
-        
+
         self.optimizer_class = torch.optim.AdamW
         self.optimizer = self.optimizer_class(
             self.unet.parameters(),  # only optimize unet
@@ -102,21 +93,14 @@ class Predictor(BasePredictor):
             beta_end=0.012,
             beta_schedule="linear",
             num_train_timesteps=1000,
-        )    
-    
+        )
+
     def training_function(self):
         # We need to recalculate our total training steps as the size of the training dataloader may have changed.
         num_update_steps_per_epoch = math.ceil(
             len(self.train_dataloader) / self.args.gradient_accumulation_steps
         )
         num_train_epochs = math.ceil(self.args.max_train_steps / num_update_steps_per_epoch)
-
-        # Train!
-        total_batch_size = (
-            self.args.train_batch_size
-            * self.accelerator.num_processes
-            * self.args.gradient_accumulation_steps
-        )
 
         # Only show the progress bar once on each machine.
         progress_bar = tqdm(
@@ -153,17 +137,13 @@ class Predictor(BasePredictor):
                         encoder_hidden_states = self.text_encoder(batch["input_ids"])[0]
 
                     # Predict the noise residual
-                    noise_pred = self.unet(
-                        noisy_latents, timesteps, encoder_hidden_states
-                    ).sample
-                    loss = (
-                        F.mse_loss(noise_pred, noise, reduction="none")
-                        .mean([1, 2, 3])
-                        .mean()
-                    )
+                    noise_pred = self.unet(noisy_latents, timesteps, encoder_hidden_states).sample
+                    loss = F.mse_loss(noise_pred, noise, reduction="none").mean([1, 2, 3]).mean()
                     self.accelerator.backward(loss)
                     if self.accelerator.sync_gradients:
-                        self.accelerator.clip_grad_norm_(self.unet.parameters(), self.args.max_grad_norm)
+                        self.accelerator.clip_grad_norm_(
+                            self.unet.parameters(), self.args.max_grad_norm
+                        )
                     self.optimizer.step()
                     self.optimizer.zero_grad()
 
@@ -179,7 +159,7 @@ class Predictor(BasePredictor):
                     break
 
             self.accelerator.wait_for_everyone()
-            
+
         # disable nsfw filter
         def dummy(images, **kwargs):
             return images, False
@@ -206,82 +186,82 @@ class Predictor(BasePredictor):
                 feature_extractor=self.feature_extractor,
             )
             pipeline.save_pretrained(self.args.output_directory)
-        
-        
+
     def train(self):
-        
-        if os.path.exists(self.args.output_directory) == False:
+
+        if not os.path.exists(self.args.output_directory):
             os.mkdir(self.args.output_directory)
-        
+
             notebook_launcher(
-                self.training_function, num_processes=self.args.num_of_gpus # CHANGE THIS TO MATCH THE NUMBER OF GPUS YOU HAVE
+                self.training_function,
+                num_processes=self.args.num_of_gpus,  # CHANGE THIS TO MATCH THE NUMBER OF GPUS YOU HAVE
             )
-        
+
         self.pipe = StableDiffusionPipeline.from_pretrained(
             self.args.output_directory,
             torch_dtype=torch.float32,
         ).to("cuda")
 
-
-    def predict(self, 
-                prompt: str=Input(
-                    description="Customized prompt appended to image concept and object type.",
-                    default="None",
-                ),
-                image_object: str=Input(
-                    description="The type of object being generated (e.g. 'dog', 'cat', etc.)"
-                ),
-                image_concept: str=Input(
-                    description="Image concept. Typically features animal type followed by 'pokemon' (e.g. german shorthaired pokemon)."
-                ), 
-                learning_rate: int=Input(
-                    description="The step size at which the optimizer makes updates to the model parameters during training.",
-                    default=3e-06
-                ),
-                max_train_steps: int=Input(
-                    description="The number of times the model processes a batch of training data during the training process.",
-                    default=209
-                ),
-                max_grad_norm: int=Input(
-                    description="The maximum allowable size of the gradient vector during training.",
-                    default=1.0,
-                ),
-                num_inference_steps: int=Input(
-                    description="Number of image denoising steps. 50-200 returns the best results, experimentally.",
-                    default=50,
-                ),
-                guidance_scale: int=Input(
-                    description="Paramater that controls how much the image generation process follows the text prompt.",
-                    default=10,
-                ),
-                resolution: int=Input(
-                    description="Resolution of generated images.",
-                    default=512,
-                ),
-                mixed_precision: str=Input(
-                    description="Whether to use mixed precision.",
-                    default="fp16",
-                ),
-                num_of_gpus: int=Input(
-                    description="The number of GPUs to use for training.",
-                    default=1,
-                ),
-                num_images_to_generate: int=Input(
-                    description="The number of images generated for user.",
-                    default=5,
-                )
-               ) -> List[Path]:
+    def predict(
+        self,
+        prompt: str = Input(
+            description="Customized prompt appended to image concept and object type.",
+            default="None",
+        ),
+        image_object: str = Input(
+            description="The type of object being generated (e.g. 'dog', 'cat', etc.)"
+        ),
+        image_concept: str = Input(
+            description="Image concept. Typically features animal type followed by 'pokemon' (e.g. german shorthaired pokemon)."
+        ),
+        learning_rate: int = Input(
+            description="The step size at which the optimizer makes updates to the model parameters during training.",
+            default=3e-06,
+        ),
+        max_train_steps: int = Input(
+            description="The number of times the model processes a batch of training data during the training process.",
+            default=209,
+        ),
+        max_grad_norm: int = Input(
+            description="The maximum allowable size of the gradient vector during training.",
+            default=1.0,
+        ),
+        num_inference_steps: int = Input(
+            description="Number of image denoising steps. 50-200 returns the best results, experimentally.",
+            default=50,
+        ),
+        guidance_scale: int = Input(
+            description="Paramater that controls how much the image generation process follows the text prompt.",
+            default=10,
+        ),
+        resolution: int = Input(
+            description="Resolution of generated images.",
+            default=512,
+        ),
+        mixed_precision: str = Input(
+            description="Whether to use mixed precision.",
+            default="fp16",
+        ),
+        num_of_gpus: int = Input(
+            description="The number of GPUs to use for training.",
+            default=1,
+        ),
+        num_images_to_generate: int = Input(
+            description="The number of images generated for user.",
+            default=5,
+        ),
+    ) -> List[Path]:
 
         self.instance_prompt = f"{image_concept} {image_object}"
-        
+
         # define new hyperparameters for training run
         self.args.max_train_steps = max_train_steps
 
         self.train_dataset = DreamBoothData(
-        self.args.train_data_directory,
-        self.tokenizer,
-        self.instance_prompt,
-        size=self.args.resolution,
+            self.args.train_data_directory,
+            self.tokenizer,
+            self.instance_prompt,
+            size=self.args.resolution,
         )
 
         self.train_dataloader = DataLoader(
@@ -313,12 +293,20 @@ class Predictor(BasePredictor):
 
         all_images = []
         for _ in range(self.args.num_images_to_generate):
-            images = self.pipe(prompt, guidance_scale=self.args.guidance_scale,
-                          num_inference_steps=self.args.num_inference_steps).images
+            images = self.pipe(
+                prompt,
+                guidance_scale=self.args.guidance_scale,
+                num_inference_steps=self.args.num_inference_steps,
+            ).images
             all_images.extend(images)
 
-            
-        title = str(self.args.learning_rate) + "_" + str(self.args.max_train_steps) + "_" + str(self.args.guidance_scale)
+        title = (
+            str(self.args.learning_rate)
+            + "_"
+            + str(self.args.max_train_steps)
+            + "_"
+            + str(self.args.guidance_scale)
+        )
         for idx, im in enumerate(all_images):
             im.save(f"{self.args.experiment_results}/{idx:03}_{title}_{image_object}.jpg")
 
@@ -326,13 +314,11 @@ class Predictor(BasePredictor):
         directory = self.args.experiment_results
         files = os.scandir(directory)
         jpeg_files = [
-            os.path.join(directory, f.name) for f in files \
-            if f.name.lower().endswith('.jpg') \
-            or f.name.lower().endswith('.jpeg')
+            os.path.join(directory, f.name)
+            for f in files
+            if f.name.lower().endswith(".jpg") or f.name.lower().endswith(".jpeg")
         ]
-        
+
         jpeg_files = [Path(jpeg_file) for jpeg_file in jpeg_files]
 
         return jpeg_files
-
-
