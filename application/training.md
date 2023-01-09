@@ -1,1 +1,0 @@
-::: application.handle_training
