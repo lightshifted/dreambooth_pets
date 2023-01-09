@@ -36,5 +36,5 @@ setup(
         "dev": docs_packages + style_packages + test_packages + ["pre-commit==2.21.0"],
         "docs": docs_packages,
         "test": test_packages,
-        }
+    },
 )
