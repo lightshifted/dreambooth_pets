@@ -45,6 +45,6 @@ Using the CLI, we can define the model, training and data arguments for fine-tun
 --output_directory="output_model",
 --image_concept="shih tzu",
 ```
-## COG
+## Test Model Using Replicate
 
 ## Jupyter Notebook
