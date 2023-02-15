@@ -56,7 +56,7 @@ cog run predict.py --model-id="pretrained_model" --device="cuda" --seed=3434553 
 ```
 
 ## API
-Step 5: Run model using API
+Step 5: Run model using FastAPI
 ```bash
 uvicorn app.api:app --host 0.0.0.0 --port=8000 --reload --reload-dir app
 ```
